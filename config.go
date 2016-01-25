@@ -13,7 +13,8 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"golang.org/x/oauth2/jwt"
-	"google.golang.org/api/bigquery/v2"
+	"google.golang.org/api/appengine/v1beta4"
+	"google.golang.org/api/storage/v1"
 )
 
 // Config is the configuration structure used to instantiate the Google
@@ -23,7 +24,8 @@ type Config struct {
 	Project     string
 	Region      string
 
-	clientBigQuery  *bigquery.Service
+	clientStorage  *storage.Service
+	clientAppengine *appengine.Service
 }
 
 func (c *Config) loadAndValidate() error {
@@ -85,12 +87,19 @@ func (c *Config) loadAndValidate() error {
 
 	var err error
 
-	log.Printf("[INFO] Instantiating Google BigQuery Client...")
-	c.clientBigQuery, err = bigquery.New(client)
+	log.Printf("[INFO] Instantiating Google Storage Client...")
+	c.clientStorage, err = storage.New(client)
 	if err != nil {
 		return err
 	}
-	c.clientBigQuery.UserAgent = userAgent
+	c.clientStorage.UserAgent = userAgent
+
+	log.Printf("[INFO] Instantiating Google Appengine Client...")
+	c.clientAppengine, err = appengine.New(client)
+	if err != nil {
+		return err
+	}
+	c.clientAppengine.UserAgent = userAgent
 
 	return nil
 }

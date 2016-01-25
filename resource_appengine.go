@@ -2,16 +2,19 @@ package main
 
 import (
 	"fmt"
+	"log"
+	"time"
+	"strings"
 	"github.com/hashicorp/terraform/helper/schema"
 	"google.golang.org/api/appengine/v1beta4"
-	"google.golang.org/api/googleapi"
+	"google.golang.org/api/storage/v1"
 )
 
 func resourceAppengine() *schema.Resource {
 	return &schema.Resource{
 		Create: resourceAppengineCreate,
 		Read:   resourceAppengineRead,
-		Delete: resourceAppenginetDelete,
+		Delete: resourceAppengineDelete,
 
 		Schema: map[string]*schema.Schema{
 			"moduleName": &schema.Schema{
@@ -44,24 +47,24 @@ func resourceAppengine() *schema.Resource {
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
 						"minIdleInstance": &schema.Schema{
-							Type:     schema.TypeString,
+							Type:     schema.TypeInt,
 							Optional: true,
 							Default:  "1",
 						},
 
 						"maxIdleInstance": &schema.Schema{
-							Type:     schema.TypeString,
+							Type:     schema.TypeInt,
 							Optional: true,
 							Default: "3",
 						},
 
-						"MinPendingLatency": &schema.Schema{
+						"minPendingLatency": &schema.Schema{
 							Type:     schema.TypeString,
 							Optional: true,
 							Default: "Automatic",
 						},
 
-						"MaxPendingLatency": &schema.Schema{
+						"maxPendingLatency": &schema.Schema{
 							Type:     schema.TypeString,
 							Optional: true,
 							Default: "Automatic",
@@ -69,118 +72,184 @@ func resourceAppengine() *schema.Resource {
 					},
 				},
 			},
+			"servingStatus": &schema.Schema{
+				Type:     schema.TypeString,
+				Computed: true,
+			},
 		},
 	}
 }
 
-func resourceAppengineDatasetCreate(d *schema.ResourceData, meta interface{}) error {
+var (
+	remoteBase = "https://storage.googleapis.com/"
+)
+
+
+func urlHandlers() ([]*appengine.UrlMap) {
+	handlers := make([]*appengine.UrlMap, 0)
+		handlers = append(handlers, &appengine.UrlMap{
+			SecurityLevel: "SECURE_OPTIONAL",
+			Login: "LOGIN_OPTIONAL",
+			UrlRegex:"/", 
+			Script:&appengine.ScriptHandler{
+				ScriptPath:"unused",
+			},
+		})
+		handlers = append(handlers, &appengine.UrlMap{
+			SecurityLevel: "SECURE_OPTIONAL",
+			Login: "LOGIN_OPTIONAL",
+			UrlRegex:"/.*/", 
+			Script:&appengine.ScriptHandler{
+				ScriptPath:"unused",
+			},
+		})
+		handlers = append(handlers, &appengine.UrlMap{
+			SecurityLevel: "SECURE_OPTIONAL",
+			Login: "LOGIN_OPTIONAL",
+			UrlRegex:"/_ah/.*", 
+			Script:&appengine.ScriptHandler{
+				ScriptPath:"unused",
+			},
+		})
+		handlers = append(handlers, &appengine.UrlMap{
+			SecurityLevel: "SECURE_OPTIONAL",
+			Login: "LOGIN_OPTIONAL",
+			UrlRegex:"/endpoint", 
+			Script:&appengine.ScriptHandler{
+				ScriptPath:"unused",
+			},
+		})
+		
+		return handlers
+}
+
+
+// known issues with this function:
+//   assumes "/" is delimiter in gstorage and forces that to be last char in key
+//   only searches first page, if more then 1k files to load, will only grab first 1k
+func generateFileList(d *schema.ResourceData, config *Config) (map[string]appengine.FileInfo, error) {
+	listService := storage.NewObjectsService(config.clientStorage)
+	bucket := d.Get("gstorageBucket").(string)
+	listCall := listService.List(bucket)
+	key := d.Get("gstorageKey").(string)
+	lastChar := key[len(key)-1:]
+	if lastChar != "/" {
+		key = key + "/"
+	}
+	listCall = listCall.Prefix(key)
+	objs, err := listCall.Do()
+	if err != nil {
+		return nil, err
+	}
+	
+	files := make(map[string]appengine.FileInfo)
+	for _, obj := range objs.Items {
+		onDiskName := strings.Replace(obj.Name, key, "", 1)  // trims key from file name
+		inCloudURL := remoteBase + bucket + "/" + obj.Name
+		files[onDiskName] = appengine.FileInfo{SourceUrl:inCloudURL} 
+	}
+	
+	return files, nil
+}
+
+func resourceAppengineCreate(d *schema.ResourceData, meta interface{}) error {
 	config := meta.(*Config)
 
-	datasetRef := &bigquery.DatasetReference{DatasetId: d.Get("datasetId").(string), ProjectId: config.Project}
-
-	dataset := &bigquery.Dataset{DatasetReference: datasetRef}
-
-	if v, ok := d.GetOk("friendlyName"); ok {
-		dataset.FriendlyName = v.(string)
+	automaticScaling := &appengine.AutomaticScaling{
+		MinIdleInstances: int64(d.Get("minIdleInstance").(int)),
+		MaxIdleInstances: int64(d.Get("maxIdleInstance").(int)),
+		MinPendingLatency: d.Get("minPendingLatency").(string),
+		MaxPendingLatency: d.Get("maxPendingLatency").(string),
 	}
-
-	if v, ok := d.GetOk("description"); ok {
-		dataset.Description = v.(string)
-	}
-
-	if v, ok := d.GetOk("location"); ok {
-		dataset.Location = v.(string)
-	}
-
-	if v, ok := d.GetOk("defaultTableExpirationMs"); ok {
-		dataset.DefaultTableExpirationMs = v.(int64)
-	}
-
-	if v, ok := d.GetOk("access"); ok {
-		accessList := make([]*bigquery.DatasetAccess, 0)
-		for _, access_interface := range v.([]interface{}) {
-			access_parsed := &bigquery.DatasetAccess{}
-			access_raw := access_interface.(map[string]interface{})
-			if role, ok := access_raw["role"]; ok {
-				access_parsed.Role = role.(string)
-			}
-			if userByEmail, ok := access_raw["userByEmail"]; ok {
-				access_parsed.UserByEmail = userByEmail.(string)
-			}
-			if groupByEmail, ok := access_raw["groupByEmail"]; ok {
-				access_parsed.GroupByEmail = groupByEmail.(string)
-			}
-			if domain, ok := access_raw["domain"]; ok {
-				access_parsed.Domain = domain.(string)
-			}
-			if specialGroup, ok := access_raw["specialGroup"]; ok {
-				access_parsed.SpecialGroup = specialGroup.(string)
-			}
-			if view, ok := access_raw["view"]; ok {
-				view_raw := view.([]interface{})
-				if len(view_raw) > 1 {
-					fmt.Errorf("There are more then one view records in a single access record, this is not valid.")
-				}
-				view_parsed := &bigquery.TableReference{}
-				view_zero := view_raw[0].(map[string]interface{})
-				if projectId, ok := view_zero["projectId"]; ok {
-					view_parsed.ProjectId = projectId.(string)
-				}
-				if datasetId, ok := view_zero["datasetId"]; ok {
-					view_parsed.DatasetId = datasetId.(string)
-				}
-				if tableId, ok := view_zero["tableId"]; ok {
-					view_parsed.TableId = tableId.(string)
-				}
-				access_parsed.View = view_parsed
-			}
-
-			accessList = append(accessList, access_parsed)
-		}
-
-		dataset.Access = accessList
-	}
-
-	call := config.clientAppengine.Datasets.Insert(config.Project, dataset)
-	_, err := call.Do()
+	
+	files, err := generateFileList(d, config)
 	if err != nil {
 		return err
 	}
-
+	deployment := &appengine.Deployment{Files:files}
+	
+	handlers := urlHandlers()
+	
+	inbound_services := make([]string, 1)
+	inbound_services[0] = "INBOUND_SERVICE_WARMUP"
+	
+	//  Version object for this module 
+	version := &appengine.Version{
+		AutomaticScaling: automaticScaling, 
+		Deployment:deployment, 
+		Handlers: handlers, 
+		Id: d.Get("Version").(string), 
+		Runtime: "java7",
+		//InstanceClass: "F2",  this is exploding.  not sure why
+		InboundServices: inbound_services,
+		Threadsafe: true,
+	}
+	
+	//  create the application
+	moduleService := appengine.NewAppsModulesVersionsService(config.clientAppengine)
+	createCall := moduleService.Create(config.Project, d.Get("moduleName").(string), version)
+	operation, err := createCall.Do()
+	if err != nil {
+		return err
+	}
+	
+	err = operationWait(operation, config)
+	if err != nil {
+		return err
+	}
+	
 	return resourceAppengineRead(d, meta)
+}
+
+func operationWait(operation *appengine.Operation, config *Config) (error) {
+	//  wait for the creation to complete
+	operationService := appengine.NewAppsOperationsService(config.clientAppengine)
+	operationGet := operationService.Get(config.Project, strings.Replace(operation.Name, "apps/"+config.Project+"/operations/", "", 1))
+	carryon := true
+	for carryon {
+		operation, err := operationGet.Do()
+		if err != nil {
+			return err
+		}
+		carryon = !operation.Done
+		time.Sleep(10*time.Second)
+	}
+	
+	//   if it failed, explode
+	if operation.Error != nil {
+		log.Printf("[DEBUG] status list from bad operation: %q", operation.Error.Details)
+		return fmt.Errorf(operation.Error.Message)
+	}
+	
+	return nil
 }
 
 func resourceAppengineRead(d *schema.ResourceData, meta interface{}) error {
 	config := meta.(*Config)
 
-	call := config.clientAppengine.Datasets.Get(config.Project, d.Get("datasetId").(string))
-	res, err := call.Do()
+	moduleService := appengine.NewAppsModulesVersionsService(config.clientAppengine)
+	getCall := moduleService.Get(config.Project, d.Get("moduleName").(string), d.Get("Version").(string))
+	version, err := getCall.Do()
 	if err != nil {
-		if gerr, ok := err.(*googleapi.Error); ok && gerr.Code == 404 {
-			// The resource doesn't exist anymore
-			d.SetId("")
-
-			return nil
-		}
-		return fmt.Errorf("Failed to read bigquery dataset %s with err: %q", d.Get("datasetId").(string), err)
+		return err
 	}
 
-	d.SetId(res.Id)
-	d.Set("self_link", res.SelfLink)
-	d.Set("lastModifiedTime", res.LastModifiedTime)
-	d.Set("id", res.Id)
+	d.SetId(version.Name)
+	d.Set("servingStatus", version.ServingStatus)
 	return nil
 }
 
-func resourceAppengineDatasetUpdate(d *schema.ResourceData, meta interface{}) error {
-	return nil
-}
-
-func resourceAppengineDatasetDelete(d *schema.ResourceData, meta interface{}) error {
+func resourceAppengineDelete(d *schema.ResourceData, meta interface{}) error {
 	config := meta.(*Config)
 
-	call := config.clientAppengine.Datasets.Delete(config.Project, d.Get("datasetId").(string))
-	err := call.Do()
+	moduleService := appengine.NewAppsModulesVersionsService(config.clientAppengine)
+	deleteCall := moduleService.Delete(config.Project, d.Get("moduleName").(string), d.Get("Version").(string))
+	operation, err := deleteCall.Do()
+	if err != nil {
+		return err
+	}
+
+	err =  operationWait(operation, config)
 	if err != nil {
 		return err
 	}

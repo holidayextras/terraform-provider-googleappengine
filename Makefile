@@ -4,11 +4,11 @@ default: test
 
 #  build creates the executable plugin
 build: 
-	go build -o terraform-provider-googlebigquery
+	go build -o terraform-provider-googleappengine
 
 #  install installs the built plugin to go path bin
 install: build
-	mv terraform-provider-googlebigquery $(GOPATH)/bin/terraform-provider-googlebigquery
+	mv terraform-provider-googleappengine $(GOPATH)/bin/terraform-provider-googleappengine
 
 # test runs the unit tests and vets the code
 test: 
