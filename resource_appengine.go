@@ -44,15 +44,16 @@ func resourceAppengine() *schema.Resource {
 			"scaling": &schema.Schema{
 				Type:     schema.TypeList,
 				Optional: true,
+				ForceNew: true,
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
-						"minIdleInstance": &schema.Schema{
+						"minIdleInstances": &schema.Schema{
 							Type:     schema.TypeInt,
 							Optional: true,
 							Default:  "1",
 						},
 
-						"maxIdleInstance": &schema.Schema{
+						"maxIdleInstances": &schema.Schema{
 							Type:     schema.TypeInt,
 							Optional: true,
 							Default: "3",
@@ -155,12 +156,19 @@ func generateFileList(d *schema.ResourceData, config *Config) (map[string]appeng
 func resourceAppengineCreate(d *schema.ResourceData, meta interface{}) error {
 	config := meta.(*Config)
 
-	automaticScaling := &appengine.AutomaticScaling{
-		MinIdleInstances: int64(d.Get("minIdleInstance").(int)),
-		MaxIdleInstances: int64(d.Get("maxIdleInstance").(int)),
-		MinPendingLatency: d.Get("minPendingLatency").(string),
-		MaxPendingLatency: d.Get("maxPendingLatency").(string),
+
+	/*scaling_raw := d.Get("scaling").([]interface{})
+	if len(scaling_raw) > 1 {
+		return fmt.Errorf("User supplied more then one scaling setting.  This is wrong")
 	}
+	
+	scale := scaling_raw[0].(map[string]interface{})
+	automaticScaling := &appengine.AutomaticScaling{
+		MinIdleInstances: int64(scale["minIdleInstances"].(int)),
+		MaxIdleInstances: int64(scale["maxIdleInstances"].(int)),
+		MinPendingLatency: scale["minPendingLatency"].(string),
+		MaxPendingLatency: scale["maxPendingLatency"].(string),
+	}*/
 	
 	files, err := generateFileList(d, config)
 	if err != nil {
@@ -175,10 +183,10 @@ func resourceAppengineCreate(d *schema.ResourceData, meta interface{}) error {
 	
 	//  Version object for this module 
 	version := &appengine.Version{
-		AutomaticScaling: automaticScaling, 
+		//AutomaticScaling: automaticScaling, 
 		Deployment:deployment, 
 		Handlers: handlers, 
-		Id: d.Get("Version").(string), 
+		Id: d.Get("version").(string), 
 		Runtime: "java7",
 		//InstanceClass: "F2",  this is exploding.  not sure why
 		InboundServices: inbound_services,
@@ -228,7 +236,7 @@ func resourceAppengineRead(d *schema.ResourceData, meta interface{}) error {
 	config := meta.(*Config)
 
 	moduleService := appengine.NewAppsModulesVersionsService(config.clientAppengine)
-	getCall := moduleService.Get(config.Project, d.Get("moduleName").(string), d.Get("Version").(string))
+	getCall := moduleService.Get(config.Project, d.Get("moduleName").(string), d.Get("version").(string))
 	version, err := getCall.Do()
 	if err != nil {
 		return err
@@ -243,7 +251,7 @@ func resourceAppengineDelete(d *schema.ResourceData, meta interface{}) error {
 	config := meta.(*Config)
 
 	moduleService := appengine.NewAppsModulesVersionsService(config.clientAppengine)
-	deleteCall := moduleService.Delete(config.Project, d.Get("moduleName").(string), d.Get("Version").(string))
+	deleteCall := moduleService.Delete(config.Project, d.Get("moduleName").(string), d.Get("version").(string))
 	operation, err := deleteCall.Do()
 	if err != nil {
 		return err

@@ -1,0 +1,77 @@
+package main
+
+import (
+	"fmt"
+	"testing"
+
+	"github.com/hashicorp/terraform/helper/resource"
+	"github.com/hashicorp/terraform/terraform"
+)
+
+func TestAccAppengineCreate(t *testing.T) {
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:     func() { testAccPreCheck(t) },
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckAppengineDestroy,
+		Steps: []resource.TestStep{
+			resource.TestStep{
+				Config: testAccAppengine,
+				Check: resource.ComposeTestCheckFunc(
+					testAccAppengineExists("google_appengine.foobar"),
+				),
+			},
+		},
+	})
+}
+
+func testAccCheckAppengineDestroy(s *terraform.State) error {
+	for _, rs := range s.RootModule().Resources {
+		if rs.Type != "google_appengine" {
+			continue
+		}
+
+		config := testAccProvider.Meta().(*Config)
+		_, err := config.clientAppengine.Apps.Modules.Versions.Get(config.Project, rs.Primary.Attributes["moduleName"], rs.Primary.Attributes["version"]).Do()
+		if err != nil {
+			fmt.Errorf("Application still present")
+		}
+	}
+
+	return nil
+}
+
+func testAccAppengineExists(n string) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		rs, ok := s.RootModule().Resources[n]
+		if !ok {
+			return fmt.Errorf("Not found: %s", n)
+		}
+
+		if rs.Primary.ID == "" {
+			return fmt.Errorf("No ID is set")
+		}
+		config := testAccProvider.Meta().(*Config)
+		_, err := config.clientAppengine.Apps.Modules.Versions.Get(config.Project, rs.Primary.Attributes["moduleName"], rs.Primary.Attributes["version"]).Do()
+		if err != nil {
+			fmt.Errorf("Application not present")
+		}
+
+		return nil
+	}
+}
+
+const testAccAppengine = `
+resource "google_appengine" "foobar" {
+	moduleName = "foobar"
+	version = "foobaz"
+	gstorageBucket = "build-artifacts-public-eu"
+	gstorageKey = "hxtest-1.0-SNAPSHOT/"
+	
+	scaling {
+		minIdleInstances = 1
+		maxIdleInstances = 3
+		minPendingLatency = "30s"
+		maxPendingLatency = "300s"
+	}
+}`
