@@ -176,7 +176,7 @@ func renderAppengineXML(d  *schema.ResourceData, config *Config) (error) {
 		TopicName: d.Get("topicName").(string),
 	}
 	
-	templ, err := template.New("appengine-web.xml.template").ParseFiles("templates/appengine-web.xml.template")
+	templ, err := template.New("appengine-web.xml.template").Parse(axdTemplate)
 	if err != nil {
 		return err
 	}
