@@ -34,7 +34,7 @@ func Provider() terraform.ResourceProvider {
 		},
 
 		ResourcesMap: map[string]*schema.Resource{
-			"google_appengine":               resourceAppengine(),
+			"googleappengine_app":               resourceAppengine(),
 		},
 
 		ConfigureFunc: providerConfigure,

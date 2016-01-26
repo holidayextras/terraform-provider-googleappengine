@@ -1,10 +1,12 @@
-# terraform-provider-googlebigquery
-This provider exposes resources that we don't want to wait for
-terraform upstream to merge.  There is a PR open but incomplete
-with terraform and we plan to finish it eventually.
+# terraform-provider-googleappengine
+This provider exposes resources that we don't want to build into
+terraform mainline.  There are two reasons for this:
+1. we are moving very quickly right now
+2. the scope of adding a real appengine provider is massive and
+   see number 1
 
-This provider will eventually be merged completely into the
-upstream terraform provider.
+This provider only supports java applications right now.  Any others
+will fails.
 
 To use:
 - check out
@@ -22,11 +24,17 @@ To use:
 - edit terraform.rc (see terraform docs here: https://terraform.io/docs/plugins/basics.html) to have the
   following block:
   providers {
-    googlecli = "terraform-provider-googlecli"
+    googleappengine = "terraform-provider-googleappengine"
   }
 - build and copy file to terraform install
   - locate terraform install
   - make build
-  - cp terraform-provider-googlecli TERRAFORM_INSTALL_LOCATION
+  - cp terraform-provider-googleappengine TERRAFORM_INSTALL_LOCATION
 
-And there is a Makefile that will do all of the above.  
+And there is a Makefile that will do all of the above.  Makefile instructions:
+To install:
+  make install
+  
+To test:
+  make test
+  * this still requires you set the listed environment variables

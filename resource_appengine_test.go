@@ -18,7 +18,7 @@ func TestAccAppengineCreate(t *testing.T) {
 			resource.TestStep{
 				Config: testAccAppengine,
 				Check: resource.ComposeTestCheckFunc(
-					testAccAppengineExists("google_appengine.foobar"),
+					testAccAppengineExists("googleappengine_app.foobar"),
 				),
 			},
 		},
@@ -27,7 +27,7 @@ func TestAccAppengineCreate(t *testing.T) {
 
 func testAccCheckAppengineDestroy(s *terraform.State) error {
 	for _, rs := range s.RootModule().Resources {
-		if rs.Type != "google_appengine" {
+		if rs.Type != "googleappengine_app" {
 			continue
 		}
 
@@ -62,7 +62,7 @@ func testAccAppengineExists(n string) resource.TestCheckFunc {
 }
 
 const testAccAppengine = `
-resource "google_appengine" "foobar" {
+resource "googleappengine_app" "foobar" {
 	moduleName = "foobar"
 	version = "foobaz"
 	gstorageBucket = "build-artifacts-public-eu"
@@ -71,7 +71,9 @@ resource "google_appengine" "foobar" {
 	scaling {
 		minIdleInstances = 1
 		maxIdleInstances = 3
-		minPendingLatency = "30s"
-		maxPendingLatency = "300s"
+		minPendingLatency = "1s"
+		maxPendingLatency = "10s"
 	}
+	
+	topicName = "projects/hx-test/topics/notarealtopic"
 }`

@@ -1,10 +1,13 @@
 package main
 
 import (
+	"os"
 	"fmt"
 	"log"
 	"time"
 	"strings"
+	"strconv"
+	"text/template"
 	"github.com/hashicorp/terraform/helper/schema"
 	"google.golang.org/api/appengine/v1beta4"
 	"google.golang.org/api/storage/v1"
@@ -72,6 +75,11 @@ func resourceAppengine() *schema.Resource {
 						},
 					},
 				},
+			},
+			"topicName": &schema.Schema{
+				Type:     schema.TypeString,
+				Required: true,
+				ForceNew: true,
 			},
 			"servingStatus": &schema.Schema{
 				Type:     schema.TypeString,
@@ -153,22 +161,122 @@ func generateFileList(d *schema.ResourceData, config *Config) (map[string]appeng
 	return files, nil
 }
 
+func renderAppengineXML(d  *schema.ResourceData, config *Config) (error) {
+	type AppengineXmlData struct {
+		Project			string
+		SourceVersion	string
+		Module			string
+		TopicName		string
+	}
+	
+	axd := AppengineXmlData{
+		Project: config.Project,
+		SourceVersion: d.Get("version").(string),
+		Module: d.Get("moduleName").(string),
+		TopicName: d.Get("topicName").(string),
+	}
+	
+	templ, err := template.New("appengine-web.xml.template").ParseFiles("templates/appengine-web.xml.template")
+	if err != nil {
+		return err
+	}
+	
+	axdRendered, err := os.Create("appengine-web.xml")
+	if err != nil {
+		return err
+	}
+	defer axdRendered.Close()
+	err = templ.Execute(axdRendered, axd)
+	if err != nil {
+		return err
+	}
+	
+	return nil
+}
+
+func pushAppengineXmlToCloud(d *schema.ResourceData, config *Config) (error) {
+	key := d.Get("gstorageKey").(string)
+	lastChar := key[len(key)-1:]
+	if lastChar != "/" {
+		key = key + "/"
+	}
+	key = key + "WEB-INF/appengine-web.xml"
+	object := &storage.Object{Name: key}
+    file, err := os.Open("appengine-web.xml")
+    if err != nil {
+    	fmt.Errorf("Error opening %q: %v", "appengine.xml", err)
+    }
+	objectService := storage.NewObjectsService(config.clientStorage)
+	_, err = objectService.Insert(d.Get("gstorageBucket").(string), object).Media(file).Do()
+    if err != nil {
+        fmt.Errorf("Objects.Insert failed: %v", err)
+    }
+
+	return nil
+}
+
+func renderAppengineXMLToCloud(d *schema.ResourceData, config *Config) (error) {
+	err := renderAppengineXML(d, config)
+	if err != nil {
+		return err
+	}
+	
+	err = pushAppengineXmlToCloud(d, config)
+	if err != nil {
+		return err
+	}
+	
+	return nil
+}
+
+func validateLatency(latency string) (string, error) {
+	lastChar := latency[len(latency)-1:]
+	if lastChar != "s" {
+		return "", fmt.Errorf("latency values must be between 1 and 15 seconds in the form: 3s")
+	}
+	latency_i, err := strconv.Atoi(latency[:len(latency)-1])
+	if err != nil {
+		return "", err
+	}
+	if latency_i < 1 || latency_i > 15 {
+		return "", fmt.Errorf("latency values must be between 1 and 15 seconds in the form: 3s")
+	}
+	
+	return latency, nil
+}
+
 func resourceAppengineCreate(d *schema.ResourceData, meta interface{}) error {
 	config := meta.(*Config)
 
 
-	/*scaling_raw := d.Get("scaling").([]interface{})
+	scaling_raw := d.Get("scaling").([]interface{})
 	if len(scaling_raw) > 1 {
 		return fmt.Errorf("User supplied more then one scaling setting.  This is wrong")
 	}
 	
+	
 	scale := scaling_raw[0].(map[string]interface{})
+	minPendingLatency, err := validateLatency(scale["minPendingLatency"].(string))
+	if err != nil {
+		return err
+	}
+	
+	maxPendingLatency, err := validateLatency(scale["maxPendingLatency"].(string))
+	if err != nil {
+		return err
+	}
 	automaticScaling := &appengine.AutomaticScaling{
 		MinIdleInstances: int64(scale["minIdleInstances"].(int)),
 		MaxIdleInstances: int64(scale["maxIdleInstances"].(int)),
-		MinPendingLatency: scale["minPendingLatency"].(string),
-		MaxPendingLatency: scale["maxPendingLatency"].(string),
-	}*/
+		MinPendingLatency: minPendingLatency,
+		MaxPendingLatency: maxPendingLatency,
+	}
+	
+	err = renderAppengineXMLToCloud(d, config)
+	if err != nil {
+		return err
+	}
+	
 	
 	files, err := generateFileList(d, config)
 	if err != nil {
@@ -183,7 +291,7 @@ func resourceAppengineCreate(d *schema.ResourceData, meta interface{}) error {
 	
 	//  Version object for this module 
 	version := &appengine.Version{
-		//AutomaticScaling: automaticScaling, 
+		AutomaticScaling: automaticScaling, 
 		Deployment:deployment, 
 		Handlers: handlers, 
 		Id: d.Get("version").(string), 
@@ -194,8 +302,8 @@ func resourceAppengineCreate(d *schema.ResourceData, meta interface{}) error {
 	}
 	
 	//  create the application
-	moduleService := appengine.NewAppsModulesVersionsService(config.clientAppengine)
-	createCall := moduleService.Create(config.Project, d.Get("moduleName").(string), version)
+	moduleVersionService := appengine.NewAppsModulesVersionsService(config.clientAppengine)
+	createCall := moduleVersionService.Create(config.Project, d.Get("moduleName").(string), version)
 	operation, err := createCall.Do()
 	if err != nil {
 		return err
@@ -235,8 +343,8 @@ func operationWait(operation *appengine.Operation, config *Config) (error) {
 func resourceAppengineRead(d *schema.ResourceData, meta interface{}) error {
 	config := meta.(*Config)
 
-	moduleService := appengine.NewAppsModulesVersionsService(config.clientAppengine)
-	getCall := moduleService.Get(config.Project, d.Get("moduleName").(string), d.Get("version").(string))
+	moduleVersionService := appengine.NewAppsModulesVersionsService(config.clientAppengine)
+	getCall := moduleVersionService.Get(config.Project, d.Get("moduleName").(string), d.Get("version").(string))
 	version, err := getCall.Do()
 	if err != nil {
 		return err
@@ -250,16 +358,30 @@ func resourceAppengineRead(d *schema.ResourceData, meta interface{}) error {
 func resourceAppengineDelete(d *schema.ResourceData, meta interface{}) error {
 	config := meta.(*Config)
 
-	moduleService := appengine.NewAppsModulesVersionsService(config.clientAppengine)
-	deleteCall := moduleService.Delete(config.Project, d.Get("moduleName").(string), d.Get("version").(string))
+	moduleVersionService := appengine.NewAppsModulesVersionsService(config.clientAppengine)
+	deleteCall := moduleVersionService.Delete(config.Project, d.Get("moduleName").(string), d.Get("version").(string))
 	operation, err := deleteCall.Do()
 	if err != nil {
-		return err
-	}
-
-	err =  operationWait(operation, config)
-	if err != nil {
-		return err
+		if strings.Contains(err.Error(), "Cannot delete the final version of a service (module)") {
+			moduleService := appengine.NewAppsModulesService(config.clientAppengine)
+			moduleDelete := moduleService.Delete(config.Project, d.Get("moduleName").(string))
+			operation, err = moduleDelete.Do()
+			if err != nil {
+				return err
+			}
+			
+			err = operationWait(operation, config)
+			if err != nil {
+				return err
+			}		
+		} else {
+			return err
+		}
+	} else {
+		err = operationWait(operation, config)
+		if err != nil {
+			return err
+		}
 	}
 
 	d.SetId("")
