@@ -289,6 +289,10 @@ func resourceAppengineCreate(d *schema.ResourceData, meta interface{}) error {
 	inbound_services := make([]string, 1)
 	inbound_services[0] = "INBOUND_SERVICE_WARMUP"
 	
+	env_vars := make(map[string]string,2)
+	env_vars["OUTPUTPUBSUB"] = d.Get("topicName").(string)
+	env_vars["RETURNMESSAGEIDS"] = "true"
+	
 	//  Version object for this module 
 	version := &appengine.Version{
 		AutomaticScaling: automaticScaling, 
@@ -298,6 +302,7 @@ func resourceAppengineCreate(d *schema.ResourceData, meta interface{}) error {
 		Runtime: "java7",
 		//InstanceClass: "F2",  this is exploding.  not sure why
 		InboundServices: inbound_services,
+		EnvVariables: env_vars,
 		Threadsafe: true,
 	}
 	
