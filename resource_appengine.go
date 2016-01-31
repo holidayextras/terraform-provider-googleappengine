@@ -43,6 +43,15 @@ func resourceAppengine() *schema.Resource {
 				Required: true,
 				ForceNew: true,
 			},
+			
+			"resource_hash": &schema.Schema{
+				Type:     schema.TypeList,
+				ForceNew: true,
+				Optional: true,
+				Elem: &schema.Schema{
+					Type: schema.TypeString,
+				},
+			},
 
 			"scaling": &schema.Schema{
 				Type:     schema.TypeList,
