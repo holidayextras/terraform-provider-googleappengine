@@ -1,13 +1,11 @@
 package main
 
 import (
-	"os"
 	"fmt"
 	"log"
 	"time"
 	"strings"
 	"strconv"
-	"text/template"
 	"github.com/hashicorp/terraform/helper/schema"
 	"google.golang.org/api/appengine/v1beta4"
 	"google.golang.org/api/storage/v1"
@@ -170,74 +168,6 @@ func generateFileList(d *schema.ResourceData, config *Config) (map[string]appeng
 	return files, nil
 }
 
-func renderAppengineXML(d  *schema.ResourceData, config *Config) (error) {
-	type AppengineXmlData struct {
-		Project			string
-		SourceVersion	string
-		Module			string
-		TopicName		string
-	}
-	
-	axd := AppengineXmlData{
-		Project: config.Project,
-		SourceVersion: d.Get("version").(string),
-		Module: d.Get("moduleName").(string),
-		TopicName: d.Get("topicName").(string),
-	}
-	
-	templ, err := template.New("appengine-web.xml.template").Parse(axdTemplate)
-	if err != nil {
-		return err
-	}
-	
-	axdRendered, err := os.Create("appengine-web.xml")
-	if err != nil {
-		return err
-	}
-	defer axdRendered.Close()
-	err = templ.Execute(axdRendered, axd)
-	if err != nil {
-		return err
-	}
-	
-	return nil
-}
-
-func pushAppengineXmlToCloud(d *schema.ResourceData, config *Config) (error) {
-	key := d.Get("gstorageKey").(string)
-	lastChar := key[len(key)-1:]
-	if lastChar != "/" {
-		key = key + "/"
-	}
-	key = key + "WEB-INF/appengine-web.xml"
-	object := &storage.Object{Name: key}
-    file, err := os.Open("appengine-web.xml")
-    if err != nil {
-    	fmt.Errorf("Error opening %q: %v", "appengine.xml", err)
-    }
-	objectService := storage.NewObjectsService(config.clientStorage)
-	_, err = objectService.Insert(d.Get("gstorageBucket").(string), object).Media(file).Do()
-    if err != nil {
-        fmt.Errorf("Objects.Insert failed: %v", err)
-    }
-
-	return nil
-}
-
-func renderAppengineXMLToCloud(d *schema.ResourceData, config *Config) (error) {
-	err := renderAppengineXML(d, config)
-	if err != nil {
-		return err
-	}
-	
-	err = pushAppengineXmlToCloud(d, config)
-	if err != nil {
-		return err
-	}
-	
-	return nil
-}
-
 func validateLatency(latency string) (string, error) {
 	lastChar := latency[len(latency)-1:]
 	if lastChar != "s" {
@@ -280,13 +210,7 @@ func resourceAppengineCreate(d *schema.ResourceData, meta interface{}) error {
 		MinPendingLatency: minPendingLatency,
 		MaxPendingLatency: maxPendingLatency,
 	}
-	
-	err = renderAppengineXMLToCloud(d, config)
-	if err != nil {
-		return err
-	}
-	
-	
+		
 	files, err := generateFileList(d, config)
 	if err != nil {
 		return err
