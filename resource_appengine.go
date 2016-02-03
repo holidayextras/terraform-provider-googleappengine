@@ -1,13 +1,11 @@
 package main
 
 import (
-	"os"
 	"fmt"
 	"log"
 	"time"
 	"strings"
 	"strconv"
-	"text/template"
 	"github.com/hashicorp/terraform/helper/schema"
 	"google.golang.org/api/appengine/v1beta4"
 	"google.golang.org/api/storage/v1"
