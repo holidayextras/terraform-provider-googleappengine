@@ -244,7 +244,7 @@ func resourceAppengineCreate(d *schema.ResourceData, meta interface{}) error {
 	createCall := moduleVersionService.Create(config.Project, d.Get("moduleName").(string), version)
 	operation, err := createCall.Do()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create mod ver: " + err.Error())
 	}
 	
 	err = operationWait(operation, config)
@@ -260,19 +260,24 @@ func operationWait(operation *appengine.Operation, config *Config) (error) {
 	operationService := appengine.NewAppsOperationsService(config.clientAppengine)
 	operationGet := operationService.Get(config.Project, strings.Replace(operation.Name, "apps/"+config.Project+"/operations/", "", 1))
 	carryon := true
+	op := &appengine.Operation{}
+	var err error
 	for carryon {
-		operation, err := operationGet.Do()
+		op, err = operationGet.Do()
 		if err != nil {
-			return err
+			return fmt.Errorf("Wait operation has exploded: " + err.Error())
 		}
-		carryon = !operation.Done
+		carryon = !op.Done
 		time.Sleep(10*time.Second)
+		log.Printf("[DEBUG] here's the whole op: %q", op)
 	}
 	
+
+	
 	//   if it failed, explode
-	if operation.Error != nil {
-		log.Printf("[DEBUG] status list from bad operation: %q", operation.Error.Details)
-		return fmt.Errorf(operation.Error.Message)
+	if op.Error != nil {
+		log.Printf("[DEBUG] status list from bad operation: %q", op.Error.Details)
+		return fmt.Errorf("The operation has completed with errors: " + op.Error.Message)
 	}
 	
 	return nil
@@ -285,7 +290,7 @@ func resourceAppengineRead(d *schema.ResourceData, meta interface{}) error {
 	getCall := moduleVersionService.Get(config.Project, d.Get("moduleName").(string), d.Get("version").(string))
 	version, err := getCall.Do()
 	if err != nil {
-		return err
+		return fmt.Errorf("Couldn't find the resource: " + err.Error())
 	}
 
 	d.SetId(version.Name)
