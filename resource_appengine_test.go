@@ -67,6 +67,7 @@ resource "googleappengine_app" "foobar" {
 	version = "foobaz"
 	gstorageBucket = "build-artifacts-public-eu"
 	gstorageKey = "hxtest-1.0-SNAPSHOT/"
+	runtime = "java7"
 	
 	scaling {
 		minIdleInstances = 1
@@ -77,3 +78,21 @@ resource "googleappengine_app" "foobar" {
 	
 	topicName = "projects/hx-test/topics/notarealtopic"
 }`
+
+/*const testAccAppenginePython = `
+resource "googleappengine_app" "foobar" {
+	moduleName = "foobar"
+	version = "foobaz"
+	gstorageBucket = "build-artifacts-public-eu"
+	gstorageKey = "python-test-app/"
+	runtime = "python27"
+	
+	scaling {
+		minIdleInstances = 1
+		maxIdleInstances = 3
+		minPendingLatency = "1s"
+		maxPendingLatency = "10s"
+	}
+	
+	topicName = "projects/hx-test/topics/notarealtopic"
+}`*/

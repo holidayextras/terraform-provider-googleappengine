@@ -42,6 +42,19 @@ func resourceAppengine() *schema.Resource {
 				ForceNew: true,
 			},
 			
+			"threadsafe": &schema.Schema{
+				Type: 	  schema.TypeBool,
+				Optional: true,
+				ForceNew: true,
+				Default:  true,	
+			},
+			
+			"runtime": &schema.Schema{
+				Type:	  schema.TypeString,
+				Required: true,
+				ForceNew: true,	
+			},
+			
 			"resource_version": &schema.Schema{
 				Type:     schema.TypeList,
 				ForceNew: true,
@@ -217,7 +230,6 @@ func resourceAppengineCreate(d *schema.ResourceData, meta interface{}) error {
 	}
 	deployment := &appengine.Deployment{Files:files}
 	
-	handlers := urlHandlers()
 	
 	inbound_services := make([]string, 1)
 	inbound_services[0] = "INBOUND_SERVICE_WARMUP"
@@ -230,13 +242,16 @@ func resourceAppengineCreate(d *schema.ResourceData, meta interface{}) error {
 	version := &appengine.Version{
 		AutomaticScaling: automaticScaling, 
 		Deployment:deployment, 
-		Handlers: handlers, 
 		Id: d.Get("version").(string), 
-		Runtime: "java7",
+		Runtime: d.Get("runtime").(string),
 		//InstanceClass: "F2",  this is exploding.  not sure why
 		InboundServices: inbound_services,
 		EnvVariables: env_vars,
-		Threadsafe: true,
+		Threadsafe: d.Get("threadsafe").(bool),
+	}
+
+	if d.Get("runtime").(string) == "java7" {
+		version.Handlers = urlHandlers()
 	}
 	
 	//  create the application
@@ -269,7 +284,7 @@ func operationWait(operation *appengine.Operation, config *Config) (error) {
 		}
 		carryon = !op.Done
 		time.Sleep(10*time.Second)
-		log.Printf("[DEBUG] here's the whole op: %q", op)
+		log.Printf("[DEBUG] here's the whole op: %+v", op)
 	}
 	
 
