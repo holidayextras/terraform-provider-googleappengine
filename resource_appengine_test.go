@@ -25,6 +25,23 @@ func TestAccAppengineCreate(t *testing.T) {
 	})
 }
 
+func TestAccPythonAppengineCreate(t *testing.T) {
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:     func() { testAccPreCheck(t) },
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckAppengineDestroy,
+		Steps: []resource.TestStep{
+			resource.TestStep{
+				Config: testAccAppenginePython,
+				Check: resource.ComposeTestCheckFunc(
+					testAccAppengineExists("googleappengine_app.foobar"),
+				),
+			},
+		},
+	})
+}
+
 func testAccCheckAppengineDestroy(s *terraform.State) error {
 	for _, rs := range s.RootModule().Resources {
 		if rs.Type != "googleappengine_app" {
@@ -79,13 +96,15 @@ resource "googleappengine_app" "foobar" {
 	topicName = "projects/hx-test/topics/notarealtopic"
 }`
 
-/*const testAccAppenginePython = `
+const testAccAppenginePython = `
 resource "googleappengine_app" "foobar" {
 	moduleName = "foobar"
 	version = "foobaz"
 	gstorageBucket = "build-artifacts-public-eu"
 	gstorageKey = "python-test-app/"
 	runtime = "python27"
+	scriptName = "guestbook.app"
+	pythonUrlRegex = "/.*"
 	
 	scaling {
 		minIdleInstances = 1
@@ -95,4 +114,4 @@ resource "googleappengine_app" "foobar" {
 	}
 	
 	topicName = "projects/hx-test/topics/notarealtopic"
-}`*/
+}`
