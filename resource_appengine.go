@@ -42,6 +42,19 @@ func resourceAppengine() *schema.Resource {
 				ForceNew: true,
 			},
 			
+			"threadsafe": &schema.Schema{
+				Type: 	  schema.TypeBool,
+				Optional: true,
+				ForceNew: true,
+				Default:  true,	
+			},
+			
+			"runtime": &schema.Schema{
+				Type:	  schema.TypeString,
+				Required: true,
+				ForceNew: true,	
+			},
+			
 			"resource_version": &schema.Schema{
 				Type:     schema.TypeList,
 				ForceNew: true,
@@ -88,6 +101,17 @@ func resourceAppengine() *schema.Resource {
 				Required: true,
 				ForceNew: true,
 			},
+			"scriptName": &schema.Schema{
+				Type:     schema.TypeString,
+				Optional: true,
+				ForceNew: true,
+			},
+			"pythonUrlRegex": &schema.Schema{
+				Type:     schema.TypeString,
+				Optional: true,
+				ForceNew: true,
+			},
+
 			"servingStatus": &schema.Schema{
 				Type:     schema.TypeString,
 				Computed: true,
@@ -100,43 +124,56 @@ var (
 	remoteBase = "https://storage.googleapis.com/"
 )
 
+func pythonUrlHandlers(d *schema.ResourceData) ([]*appengine.UrlMap) {
+	handlers := make([]*appengine.UrlMap, 0)
+	handlers = append(handlers, &appengine.UrlMap{
+		SecurityLevel: "SECURE_OPTIONAL",
+		Login: "LOGIN_OPTIONAL",
+		UrlRegex:d.Get("pythonUrlRegex").(string), 
+		Script:&appengine.ScriptHandler{
+			ScriptPath:d.Get("scriptName").(string),
+		},
+	})
+		
+	return handlers
+}
 
 func urlHandlers() ([]*appengine.UrlMap) {
 	handlers := make([]*appengine.UrlMap, 0)
-		handlers = append(handlers, &appengine.UrlMap{
-			SecurityLevel: "SECURE_OPTIONAL",
-			Login: "LOGIN_OPTIONAL",
-			UrlRegex:"/", 
-			Script:&appengine.ScriptHandler{
-				ScriptPath:"unused",
-			},
-		})
-		handlers = append(handlers, &appengine.UrlMap{
-			SecurityLevel: "SECURE_OPTIONAL",
-			Login: "LOGIN_OPTIONAL",
-			UrlRegex:"/.*/", 
-			Script:&appengine.ScriptHandler{
-				ScriptPath:"unused",
-			},
-		})
-		handlers = append(handlers, &appengine.UrlMap{
-			SecurityLevel: "SECURE_OPTIONAL",
-			Login: "LOGIN_OPTIONAL",
-			UrlRegex:"/_ah/.*", 
-			Script:&appengine.ScriptHandler{
-				ScriptPath:"unused",
-			},
-		})
-		handlers = append(handlers, &appengine.UrlMap{
-			SecurityLevel: "SECURE_OPTIONAL",
-			Login: "LOGIN_OPTIONAL",
-			UrlRegex:"/endpoint", 
-			Script:&appengine.ScriptHandler{
-				ScriptPath:"unused",
-			},
-		})
+	handlers = append(handlers, &appengine.UrlMap{
+		SecurityLevel: "SECURE_OPTIONAL",
+		Login: "LOGIN_OPTIONAL",
+		UrlRegex:"/", 
+		Script:&appengine.ScriptHandler{
+			ScriptPath:"unused",
+		},
+	})
+	handlers = append(handlers, &appengine.UrlMap{
+		SecurityLevel: "SECURE_OPTIONAL",
+		Login: "LOGIN_OPTIONAL",
+		UrlRegex:"/.*/", 
+		Script:&appengine.ScriptHandler{
+			ScriptPath:"unused",
+		},
+	})
+	handlers = append(handlers, &appengine.UrlMap{
+		SecurityLevel: "SECURE_OPTIONAL",
+		Login: "LOGIN_OPTIONAL",
+		UrlRegex:"/_ah/.*", 
+		Script:&appengine.ScriptHandler{
+			ScriptPath:"unused",
+		},
+	})
+	handlers = append(handlers, &appengine.UrlMap{
+		SecurityLevel: "SECURE_OPTIONAL",
+		Login: "LOGIN_OPTIONAL",
+		UrlRegex:"/endpoint", 
+		Script:&appengine.ScriptHandler{
+			ScriptPath:"unused",
+		},
+	})
 		
-		return handlers
+	return handlers
 }
 
 
@@ -159,13 +196,30 @@ func generateFileList(d *schema.ResourceData, config *Config) (map[string]appeng
 	}
 	
 	files := make(map[string]appengine.FileInfo)
+	
+	//  when NextPageToken is empty string, on last page
+	for objs.NextPageToken != "" {
+		files = objsToFilelist(objs, files, key, bucket)
+		listCall.PageToken(objs.NextPageToken)
+		objs, err = listCall.Do()
+		if err != nil {
+			return nil, err
+		}
+	}
+	
+	//  read contents of last page
+	files = objsToFilelist(objs, files, key, bucket)
+	
+	return files, nil
+}
+
+func objsToFilelist(objs *storage.Objects, files map[string]appengine.FileInfo, key, bucket string) (map[string]appengine.FileInfo) {
 	for _, obj := range objs.Items {
 		onDiskName := strings.Replace(obj.Name, key, "", 1)  // trims key from file name
 		inCloudURL := remoteBase + bucket + "/" + obj.Name
-		files[onDiskName] = appengine.FileInfo{SourceUrl:inCloudURL} 
+		files[onDiskName] = appengine.FileInfo{SourceUrl:inCloudURL}
 	}
-	
-	return files, nil
+	return files
 }
 
 func validateLatency(latency string) (string, error) {
@@ -217,7 +271,6 @@ func resourceAppengineCreate(d *schema.ResourceData, meta interface{}) error {
 	}
 	deployment := &appengine.Deployment{Files:files}
 	
-	handlers := urlHandlers()
 	
 	inbound_services := make([]string, 1)
 	inbound_services[0] = "INBOUND_SERVICE_WARMUP"
@@ -230,13 +283,18 @@ func resourceAppengineCreate(d *schema.ResourceData, meta interface{}) error {
 	version := &appengine.Version{
 		AutomaticScaling: automaticScaling, 
 		Deployment:deployment, 
-		Handlers: handlers, 
 		Id: d.Get("version").(string), 
-		Runtime: "java7",
+		Runtime: d.Get("runtime").(string),
 		//InstanceClass: "F2",  this is exploding.  not sure why
 		InboundServices: inbound_services,
 		EnvVariables: env_vars,
-		Threadsafe: true,
+		Threadsafe: d.Get("threadsafe").(bool),
+	}
+
+	if d.Get("runtime").(string) == "java7" {
+		version.Handlers = urlHandlers()
+	} else {
+		version.Handlers = pythonUrlHandlers(d)
 	}
 	
 	//  create the application
@@ -269,7 +327,7 @@ func operationWait(operation *appengine.Operation, config *Config) (error) {
 		}
 		carryon = !op.Done
 		time.Sleep(10*time.Second)
-		log.Printf("[DEBUG] here's the whole op: %q", op)
+		log.Printf("[DEBUG] here's the whole op: %+v", op)
 	}
 	
 
