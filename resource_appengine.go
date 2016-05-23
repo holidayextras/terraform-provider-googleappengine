@@ -98,7 +98,7 @@ func resourceAppengine() *schema.Resource {
 			},
 			"topicName": &schema.Schema{
 				Type:     schema.TypeString,
-				Required: true,
+				Optional: true,
 				ForceNew: true,
 			},
 			"scriptName": &schema.Schema{
@@ -111,6 +111,13 @@ func resourceAppengine() *schema.Resource {
 				Optional: true,
 				ForceNew: true,
 			},
+			"env_args": &schema.Schema{
+				Type:     schema.TypeMap,
+				Optional: true,
+				ForceNew: true,
+				Elem:     schema.TypeString,
+			},
+
 
 			"servingStatus": &schema.Schema{
 				Type:     schema.TypeString,
@@ -238,6 +245,14 @@ func validateLatency(latency string) (string, error) {
 	return latency, nil
 }
 
+func cleanAdditionalArgs(optional_args map[string]interface{}) map[string]string {
+	cleaned_opts := make(map[string]string)
+	for k,v := range  optional_args {
+		cleaned_opts[k] = v.(string)
+	}
+	return cleaned_opts
+}
+
 func resourceAppengineCreate(d *schema.ResourceData, meta interface{}) error {
 	config := meta.(*Config)
 
@@ -275,8 +290,15 @@ func resourceAppengineCreate(d *schema.ResourceData, meta interface{}) error {
 	inbound_services := make([]string, 1)
 	inbound_services[0] = "INBOUND_SERVICE_WARMUP"
 	
+	env_args := cleanAdditionalArgs(d.Get("env_args").(map[string]interface{}))
 	env_vars := make(map[string]string,2)
-	env_vars["OUTPUTPUBSUB"] = d.Get("topicName").(string)
+	// the specific env vars in the config are given precendence so use the general map first
+	for k, v := range env_args {
+		env_vars[k] = v
+	}
+	if outputpubsub, ok := d.GetOk("topicName"); ok {
+		env_vars["OUTPUTPUBSUB"] = outputpubsub.(string)
+	} 
 	env_vars["RETURNMESSAGEIDS"] = "true"
 	
 	//  Version object for this module 

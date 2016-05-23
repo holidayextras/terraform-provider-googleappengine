@@ -112,6 +112,4 @@ resource "googleappengine_app" "foobar" {
 		minPendingLatency = "1s"
 		maxPendingLatency = "10s"
 	}
-	
-	topicName = "projects/hx-test/topics/notarealtopic"
 }`
