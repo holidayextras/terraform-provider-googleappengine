@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"time"
+	"regexp"
 	"strings"
 	"strconv"
 	"github.com/hashicorp/terraform/helper/schema"
@@ -98,7 +99,7 @@ func resourceAppengine() *schema.Resource {
 			},
 			"topicName": &schema.Schema{
 				Type:     schema.TypeString,
-				Required: true,
+				Optional: true,
 				ForceNew: true,
 			},
 			"scriptName": &schema.Schema{
@@ -111,6 +112,13 @@ func resourceAppengine() *schema.Resource {
 				Optional: true,
 				ForceNew: true,
 			},
+			"env_args": &schema.Schema{
+				Type:     schema.TypeMap,
+				Optional: true,
+				ForceNew: true,
+				Elem:     schema.TypeString,
+			},
+
 
 			"servingStatus": &schema.Schema{
 				Type:     schema.TypeString,
@@ -215,9 +223,11 @@ func generateFileList(d *schema.ResourceData, config *Config) (map[string]appeng
 
 func objsToFilelist(objs *storage.Objects, files map[string]appengine.FileInfo, key, bucket string) (map[string]appengine.FileInfo) {
 	for _, obj := range objs.Items {
-		onDiskName := strings.Replace(obj.Name, key, "", 1)  // trims key from file name
-		inCloudURL := remoteBase + bucket + "/" + obj.Name
-		files[onDiskName] = appengine.FileInfo{SourceUrl:inCloudURL}
+		if matched, _ := regexp.MatchString("[(~])", obj.Name); !matched {  // both ( and ~ are illegal file name chars
+			onDiskName := strings.Replace(obj.Name, key, "", 1)  // trims key from file name
+			inCloudURL := remoteBase + bucket + "/" + obj.Name
+			files[onDiskName] = appengine.FileInfo{SourceUrl:inCloudURL}
+		}
 	}
 	return files
 }
@@ -236,6 +246,14 @@ func validateLatency(latency string) (string, error) {
 	}
 	
 	return latency, nil
+}
+
+func cleanAdditionalArgs(optional_args map[string]interface{}) map[string]string {
+	cleaned_opts := make(map[string]string)
+	for k,v := range  optional_args {
+		cleaned_opts[k] = v.(string)
+	}
+	return cleaned_opts
 }
 
 func resourceAppengineCreate(d *schema.ResourceData, meta interface{}) error {
@@ -275,8 +293,15 @@ func resourceAppengineCreate(d *schema.ResourceData, meta interface{}) error {
 	inbound_services := make([]string, 1)
 	inbound_services[0] = "INBOUND_SERVICE_WARMUP"
 	
+	env_args := cleanAdditionalArgs(d.Get("env_args").(map[string]interface{}))
 	env_vars := make(map[string]string,2)
-	env_vars["OUTPUTPUBSUB"] = d.Get("topicName").(string)
+	// the specific env vars in the config are given precendence so use the general map first
+	for k, v := range env_args {
+		env_vars[k] = v
+	}
+	if outputpubsub, ok := d.GetOk("topicName"); ok {
+		env_vars["OUTPUTPUBSUB"] = outputpubsub.(string)
+	} 
 	env_vars["RETURNMESSAGEIDS"] = "true"
 	
 	//  Version object for this module 
