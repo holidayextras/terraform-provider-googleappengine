@@ -1,3 +1,7 @@
+test:
+  override:
+    - make test
+
 deployment:
   demo:
     branch: master
