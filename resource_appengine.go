@@ -223,7 +223,7 @@ func generateFileList(d *schema.ResourceData, config *Config) (map[string]appeng
 
 func objsToFilelist(objs *storage.Objects, files map[string]appengine.FileInfo, key, bucket string) (map[string]appengine.FileInfo) {
 	for _, obj := range objs.Items {
-		if matched, _ := regexp.MatchString("[(~])", obj.Name); !matched {  // both ( and ~ are illegal file name chars
+		if matched, _ := regexp.MatchString("[(~]", obj.Name); !matched {  // both ( and ~ are illegal file name chars
 			onDiskName := strings.Replace(obj.Name, key, "", 1)  // trims key from file name
 			inCloudURL := remoteBase + bucket + "/" + obj.Name
 			files[onDiskName] = appengine.FileInfo{SourceUrl:inCloudURL}
