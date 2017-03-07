@@ -25,7 +25,7 @@ type Config struct {
 	Region      string
 
 	clientStorage  *storage.Service
-	clientAppengine *appengine.Service
+	clientAppengine *appengine.APIService
 }
 
 func (c *Config) loadAndValidate() error {
