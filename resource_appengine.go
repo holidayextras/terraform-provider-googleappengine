@@ -43,7 +43,20 @@ func resourceAppengine() *schema.Resource {
 				Required: true,
 				ForceNew: true,
 			},
-			
+
+			"threadsafe": &schema.Schema{
+				Type: 	  schema.TypeBool,
+				Optional: true,
+				ForceNew: true,
+				Default:  true,
+			},
+
+			"runtime": &schema.Schema{
+				Type:	  schema.TypeString,
+				Required: true,
+				ForceNew: true,
+			},
+
 			"resource_version": &schema.Schema{
 				Type:     schema.TypeList,
 				ForceNew: true,
@@ -90,35 +103,25 @@ func resourceAppengine() *schema.Resource {
 				Optional: true,
 				ForceNew: true,
 			},
-			"servingStatus": &schema.Schema{
+			"scriptName": &schema.Schema{
 				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"env_args": &schema.Schema{
-				Type:     schema.TypeList,
 				Optional: true,
 				ForceNew: true,
-				Elem:	  schema.TypeString,
-			},
-			"runtime": &schema.Schema{
-				Type:     schema.TypeString,
-				ForceNew: true,
-				Optional: true,
 			},
 			"pythonUrlRegex": &schema.Schema{
 				Type:     schema.TypeString,
 				Optional: true,
 				ForceNew: true,
 			},
-			"threadsafe": &schema.Schema{
-				Type:     schema.TypeBool,
+			"env_args": &schema.Schema{
+				Type:     schema.TypeMap,
 				Optional: true,
 				ForceNew: true,
+				Elem:     schema.TypeString,
 			},
-			"scriptName": &schema.Schema{
+			"servingStatus": &schema.Schema{
 				Type:     schema.TypeString,
-				Optional: true,
-				ForceNew: true,
+				Computed: true,
 			},
 		},
 	}
