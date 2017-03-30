@@ -1,7 +1,7 @@
 dependencies:
   override:
-	- mkdir -p ~/.go_project/src/github.com/${CIRCLE_PROJECT_USERNAME}
-	- ln -s ${HOME}/${CIRCLE_PROJECT_REPONAME} ${HOME}/.go_project/src/github.com/${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}
+    - mkdir -p ~/.go_project/src/github.com/${CIRCLE_PROJECT_USERNAME}
+    - ln -s ${HOME}/${CIRCLE_PROJECT_REPONAME} ${HOME}/.go_project/src/github.com/${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}
     - go get -u github.com/golang/dep/...
     - dep ensure
     - go build -v -o $HOME/$CIRCLE_PROJECT_REPONAME/$CIRCLE_PROJECT_REPONAME
