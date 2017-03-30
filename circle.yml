@@ -8,15 +8,22 @@ machine:
 dependencies:
   override:
     - go get -u github.com/golang/dep/...
-
-deployment:
-  demo:
     branch: master
     commands:
       - go get github.com/${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}
       - cd ${HOME}/.go_project/src/github.com/${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}
       - dep ensure
       - go build -v -o $HOME/$CIRCLE_PROJECT_REPONAME/$CIRCLE_PROJECT_REPONAME
+test:
+  override:
+    # './...' is a relative pattern which means all subdirectories
+    - echo ""
+
+
+deployment:
+  demo:
+    branch: master
+    commands:
       - cd $HOME/$CIRCLE_PROJECT_REPONAME && echo $GOOGLE_CREDENTIALS > account.json
       - /opt/google-cloud-sdk/bin/gcloud auth activate-service-account --key-file $HOME/$CIRCLE_PROJECT_REPONAME/account.json
       - gsutil cp $HOME/$CIRCLE_PROJECT_REPONAME/terraform-provider-googleappengine gs://$GSTORAGE_DEST_BUCKET/terraform-provider-googleappengine
