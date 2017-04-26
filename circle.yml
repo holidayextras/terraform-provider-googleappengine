@@ -12,7 +12,6 @@ test:
   override:
     - echo "tech debt"
 
-
 deployment:
   demo:
     branch: master

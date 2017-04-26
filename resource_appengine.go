@@ -1,13 +1,12 @@
 package main
 
 import (
-	"os"
 	"fmt"
 	"log"
 	"time"
+	"regexp"
 	"strings"
 	"strconv"
-	"text/template"
 	"github.com/hashicorp/terraform/helper/schema"
 	"google.golang.org/api/appengine/v1beta4"
 	"google.golang.org/api/storage/v1"
@@ -43,20 +42,18 @@ func resourceAppengine() *schema.Resource {
 				Required: true,
 				ForceNew: true,
 			},
-
 			"threadsafe": &schema.Schema{
 				Type: 	  schema.TypeBool,
 				Optional: true,
 				ForceNew: true,
 				Default:  true,
 			},
-
+			
 			"runtime": &schema.Schema{
 				Type:	  schema.TypeString,
 				Required: true,
-				ForceNew: true,
+				ForceNew: true,	
 			},
-
 			"resource_version": &schema.Schema{
 				Type:     schema.TypeList,
 				ForceNew: true,
@@ -131,43 +128,56 @@ var (
 	remoteBase = "https://storage.googleapis.com/"
 )
 
+func pythonUrlHandlers(d *schema.ResourceData) ([]*appengine.UrlMap) {
+	handlers := make([]*appengine.UrlMap, 0)
+	handlers = append(handlers, &appengine.UrlMap{
+		SecurityLevel: "SECURE_OPTIONAL",
+		Login: "LOGIN_OPTIONAL",
+		UrlRegex:d.Get("pythonUrlRegex").(string), 
+		Script:&appengine.ScriptHandler{
+			ScriptPath:d.Get("scriptName").(string),
+		},
+	})
+		
+	return handlers
+}
 
 func urlHandlers() ([]*appengine.UrlMap) {
 	handlers := make([]*appengine.UrlMap, 0)
-		handlers = append(handlers, &appengine.UrlMap{
-			SecurityLevel: "SECURE_OPTIONAL",
-			Login: "LOGIN_OPTIONAL",
-			UrlRegex:"/", 
-			Script:&appengine.ScriptHandler{
-				ScriptPath:"unused",
-			},
-		})
-		handlers = append(handlers, &appengine.UrlMap{
-			SecurityLevel: "SECURE_OPTIONAL",
-			Login: "LOGIN_OPTIONAL",
-			UrlRegex:"/.*/", 
-			Script:&appengine.ScriptHandler{
-				ScriptPath:"unused",
-			},
-		})
-		handlers = append(handlers, &appengine.UrlMap{
-			SecurityLevel: "SECURE_OPTIONAL",
-			Login: "LOGIN_OPTIONAL",
-			UrlRegex:"/_ah/.*", 
-			Script:&appengine.ScriptHandler{
-				ScriptPath:"unused",
-			},
-		})
-		handlers = append(handlers, &appengine.UrlMap{
-			SecurityLevel: "SECURE_OPTIONAL",
-			Login: "LOGIN_OPTIONAL",
-			UrlRegex:"/endpoint", 
-			Script:&appengine.ScriptHandler{
-				ScriptPath:"unused",
-			},
-		})
+	handlers = append(handlers, &appengine.UrlMap{
+		SecurityLevel: "SECURE_OPTIONAL",
+		Login: "LOGIN_OPTIONAL",
+		UrlRegex:"/", 
+		Script:&appengine.ScriptHandler{
+			ScriptPath:"unused",
+		},
+	})
+	handlers = append(handlers, &appengine.UrlMap{
+		SecurityLevel: "SECURE_OPTIONAL",
+		Login: "LOGIN_OPTIONAL",
+		UrlRegex:"/.*/", 
+		Script:&appengine.ScriptHandler{
+			ScriptPath:"unused",
+		},
+	})
+	handlers = append(handlers, &appengine.UrlMap{
+		SecurityLevel: "SECURE_OPTIONAL",
+		Login: "LOGIN_OPTIONAL",
+		UrlRegex:"/_ah/.*", 
+		Script:&appengine.ScriptHandler{
+			ScriptPath:"unused",
+		},
+	})
+	handlers = append(handlers, &appengine.UrlMap{
+		SecurityLevel: "SECURE_OPTIONAL",
+		Login: "LOGIN_OPTIONAL",
+		UrlRegex:"/endpoint", 
+		Script:&appengine.ScriptHandler{
+			ScriptPath:"unused",
+		},
+	})
 		
-		return handlers
+	return handlers
 }
 
 
@@ -190,81 +200,32 @@ func generateFileList(d *schema.ResourceData, config *Config) (map[string]appeng
 	}
 	
 	files := make(map[string]appengine.FileInfo)
-	for _, obj := range objs.Items {
-		onDiskName := strings.Replace(obj.Name, key, "", 1)  // trims key from file name
-		inCloudURL := remoteBase + bucket + "/" + obj.Name
-		files[onDiskName] = appengine.FileInfo{SourceUrl:inCloudURL} 
+	
+	//  when NextPageToken is empty string, on last page
+	for objs.NextPageToken != "" {
+		files = objsToFilelist(objs, files, key, bucket)
+		listCall.PageToken(objs.NextPageToken)
+		objs, err = listCall.Do()
+		if err != nil {
+			return nil, err
+		}
 	}
+	
+	//  read contents of last page
+	files = objsToFilelist(objs, files, key, bucket)
 	
 	return files, nil
 }
 
-func renderAppengineXML(d  *schema.ResourceData, config *Config) (error) {
-	type AppengineXmlData struct {
-		Project			string
-		SourceVersion	string
-		Module			string
-		TopicName		string
+func objsToFilelist(objs *storage.Objects, files map[string]appengine.FileInfo, key, bucket string) (map[string]appengine.FileInfo) {
+	for _, obj := range objs.Items {
+		if matched, _ := regexp.MatchString("[(~]", obj.Name); !matched {  // both ( and ~ are illegal file name chars
+			onDiskName := strings.Replace(obj.Name, key, "", 1)  // trims key from file name
+			inCloudURL := remoteBase + bucket + "/" + obj.Name
+			files[onDiskName] = appengine.FileInfo{SourceUrl:inCloudURL}
+		}
 	}
-	
-	axd := AppengineXmlData{
-		Project: config.Project,
-		SourceVersion: d.Get("version").(string),
-		Module: d.Get("moduleName").(string),
-		TopicName: d.Get("topicName").(string),
-	}
-	
-	templ, err := template.New("appengine-web.xml.template").Parse(axdTemplate)
-	if err != nil {
-		return err
-	}
-	
-	axdRendered, err := os.Create("appengine-web.xml")
-	if err != nil {
-		return err
-	}
-	defer axdRendered.Close()
-	err = templ.Execute(axdRendered, axd)
-	if err != nil {
-		return err
-	}
-	
-	return nil
-}
-
-func pushAppengineXmlToCloud(d *schema.ResourceData, config *Config) (error) {
-	key := d.Get("gstorageKey").(string)
-	lastChar := key[len(key)-1:]
-	if lastChar != "/" {
-		key = key + "/"
-	}
-	key = key + "WEB-INF/appengine-web.xml"
-	object := &storage.Object{Name: key}
-    file, err := os.Open("appengine-web.xml")
-    if err != nil {
-    	fmt.Errorf("Error opening %q: %v", "appengine.xml", err)
-    }
-	objectService := storage.NewObjectsService(config.clientStorage)
-	_, err = objectService.Insert(d.Get("gstorageBucket").(string), object).Media(file).Do()
-    if err != nil {
-        fmt.Errorf("Objects.Insert failed: %v", err)
-    }
-
-	return nil
-}
-
-func renderAppengineXMLToCloud(d *schema.ResourceData, config *Config) (error) {
-	err := renderAppengineXML(d, config)
-	if err != nil {
-		return err
-	}
-	
-	err = pushAppengineXmlToCloud(d, config)
-	if err != nil {
-		return err
-	}
-	
-	return nil
+	return files
 }
 
 func validateLatency(latency string) (string, error) {
@@ -281,6 +242,14 @@ func validateLatency(latency string) (string, error) {
 	}
 	
 	return latency, nil
+}
+
+func cleanAdditionalArgs(optional_args map[string]interface{}) map[string]string {
+	cleaned_opts := make(map[string]string)
+	for k,v := range  optional_args {
+		cleaned_opts[k] = v.(string)
+	}
+	return cleaned_opts
 }
 
 func resourceAppengineCreate(d *schema.ResourceData, meta interface{}) error {
@@ -309,39 +278,44 @@ func resourceAppengineCreate(d *schema.ResourceData, meta interface{}) error {
 		MinPendingLatency: minPendingLatency,
 		MaxPendingLatency: maxPendingLatency,
 	}
-	
-	err = renderAppengineXMLToCloud(d, config)
-	if err != nil {
-		return err
-	}
-	
-	
+		
 	files, err := generateFileList(d, config)
 	if err != nil {
 		return err
 	}
 	deployment := &appengine.Deployment{Files:files}
 	
-	handlers := urlHandlers()
 	
 	inbound_services := make([]string, 1)
 	inbound_services[0] = "INBOUND_SERVICE_WARMUP"
 	
+	env_args := cleanAdditionalArgs(d.Get("env_args").(map[string]interface{}))
 	env_vars := make(map[string]string,2)
-	env_vars["OUTPUTPUBSUB"] = d.Get("topicName").(string)
+	// the specific env vars in the config are given precendence so use the general map first
+	for k, v := range env_args {
+		env_vars[k] = v
+	}
+	if outputpubsub, ok := d.GetOk("topicName"); ok {
+		env_vars["OUTPUTPUBSUB"] = outputpubsub.(string)
+	} 
 	env_vars["RETURNMESSAGEIDS"] = "true"
 	
 	//  Version object for this module 
 	version := &appengine.Version{
 		AutomaticScaling: automaticScaling, 
 		Deployment:deployment, 
-		Handlers: handlers, 
 		Id: d.Get("version").(string), 
-		Runtime: "java7",
+		Runtime: d.Get("runtime").(string),
 		//InstanceClass: "F2",  this is exploding.  not sure why
 		InboundServices: inbound_services,
 		EnvVariables: env_vars,
-		Threadsafe: true,
+		Threadsafe: d.Get("threadsafe").(bool),
+	}
+
+	if d.Get("runtime").(string) == "java7" {
+		version.Handlers = urlHandlers()
+	} else {
+		version.Handlers = pythonUrlHandlers(d)
 	}
 	
 	//  create the application
@@ -349,7 +323,7 @@ func resourceAppengineCreate(d *schema.ResourceData, meta interface{}) error {
 	createCall := moduleVersionService.Create(config.Project, d.Get("moduleName").(string), version)
 	operation, err := createCall.Do()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create mod ver: " + err.Error())
 	}
 	
 	err = operationWait(operation, config)
@@ -365,19 +339,24 @@ func operationWait(operation *appengine.Operation, config *Config) (error) {
 	operationService := appengine.NewAppsOperationsService(config.clientAppengine)
 	operationGet := operationService.Get(config.Project, strings.Replace(operation.Name, "apps/"+config.Project+"/operations/", "", 1))
 	carryon := true
+	op := &appengine.Operation{}
+	var err error
 	for carryon {
-		operation, err := operationGet.Do()
+		op, err = operationGet.Do()
 		if err != nil {
-			return err
+			return fmt.Errorf("Wait operation has exploded: " + err.Error())
 		}
-		carryon = !operation.Done
+		carryon = !op.Done
 		time.Sleep(10*time.Second)
+		log.Printf("[DEBUG] here's the whole op: %+v", op)
 	}
 	
+
+	
 	//   if it failed, explode
-	if operation.Error != nil {
-		log.Printf("[DEBUG] status list from bad operation: %q", operation.Error.Details)
-		return fmt.Errorf(operation.Error.Message)
+	if op.Error != nil {
+		log.Printf("[DEBUG] status list from bad operation: %q", op.Error.Details)
+		return fmt.Errorf("The operation has completed with errors: " + op.Error.Message)
 	}
 	
 	return nil
@@ -390,7 +369,7 @@ func resourceAppengineRead(d *schema.ResourceData, meta interface{}) error {
 	getCall := moduleVersionService.Get(config.Project, d.Get("moduleName").(string), d.Get("version").(string))
 	version, err := getCall.Do()
 	if err != nil {
-		return err
+		return fmt.Errorf("Couldn't find the resource: " + err.Error())
 	}
 
 	d.SetId(version.Name)
