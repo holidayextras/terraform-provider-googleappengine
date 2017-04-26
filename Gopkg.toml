@@ -1,0 +1,12 @@
+
+[[dependencies]]
+  name = "github.com/hashicorp/terraform"
+  version = "0.8.8"
+
+[[dependencies]]
+  name = "golang.org/x/oauth2"
+  revision = "efb10a30610e617dbb17fc243f4cc61a8cfa2903"
+
+[[dependencies]]
+  name = "google.golang.org/api"
+  revision = "1202890e803f07684581b575fda809bf335a533f"

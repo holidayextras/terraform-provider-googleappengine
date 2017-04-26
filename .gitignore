@@ -26,3 +26,5 @@ _testmain.go
 # local edits
 env-file
 terraform-provider-googleappengine
+.idea/
+vendor/
